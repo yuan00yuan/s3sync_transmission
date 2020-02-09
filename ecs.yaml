@@ -1,0 +1,394 @@
+Description: >
+    This template deploys an ECS using an Auto Scaling Group
+
+Parameters:
+    VPC:
+        Description: Choose which VPC this ECS cluster should be deployed to
+        Type: AWS::EC2::VPC::Id
+    Subnets:
+        Description: Choose a public subnets this ECS cluster should be deployed to
+        Type: List<AWS::EC2::Subnet::Id>
+    CIDRblock:
+        Description: Choose CIDR block for security group
+        Type: String
+    accessId:
+        Description: China region access ID
+        Type: String
+    accessKey:
+        Description: China region access Key
+        Type: String
+    destbucket:
+        Description: China region destination bucket
+        Type: String
+    destregion:
+        Description: China region destination region
+        Type: String
+    ec2KeyPair:
+        Description: Global region key pair used in ec2
+        Type: String
+    queueName:
+        Description: queue name for sqs
+        Type: String
+    counterTable:
+        Description: table name for count the upload
+        Type: String
+    partTable:
+        Description: table name for count the part
+        Type: String
+    myservices:
+        Description: services name in ecs cluster
+        Type: String
+    mycluster:
+        Description: cluster name in ecs 
+        Type: String
+    ecsTaskRoleName:
+        Description: ecs task role name
+        Type: String
+    ecsRoleName:
+        Description: ecs role name
+        Type: String
+Mappings:
+    AWSRegionToAMI:
+        us-east-2:
+            AMI: ami-67ab9e02
+        us-east-1:
+            AMI: ami-644a431b
+        us-west-2:
+            AMI: ami-a1f8dfd9
+        us-west-1:
+            AMI: ami-00898660
+        eu-west-3:
+            AMI: ami-6fa21412
+        eu-west-2:
+            AMI: ami-42a64325
+        eu-west-1:
+            AMI: ami-880d64f1
+        eu-central-1:
+            AMI: ami-63cbae0c
+        ap-northeast-2:
+            AMI: ami-0acc6e64
+        ap-northeast-1:
+            AMI: ami-e3166185
+        ap-southeast-2:
+            AMI: ami-36867d54
+        ap-southeast-1:
+            AMI: ami-66c98f1a
+        ca-central-1:
+            AMI: ami-4b9c182f
+        ap-south-1:
+            AMI: ami-ca8ad9a5
+        sa-east-1:
+            AMI: ami-69f7b805
+
+Resources:
+    SSHSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+          VpcId: !Ref VPC
+          GroupDescription: Enable SSH access via port 22
+          SecurityGroupIngress:
+          - CidrIp: !Ref CIDRblock
+            FromPort: 22
+            IpProtocol: tcp
+            ToPort: 22
+    ECStaskRole:
+        Type: AWS::IAM::Role
+        Properties:
+            Path: /
+            RoleName: !Ref ecsTaskRoleName
+            AssumeRolePolicyDocument: |
+                {
+                    "Statement": [{
+                        "Action": "sts:AssumeRole",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "ecs-tasks.amazonaws.com"
+                        }
+                    }]
+                }
+            Policies:
+                - PolicyName: ecs-service
+                  PolicyDocument: |
+                    {
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Action": "*",
+                            "Resource": "*"
+                        }]
+                    }
+    ECSCluster:
+        Type: AWS::ECS::Cluster
+        Properties:
+            ClusterName: !Ref mycluster
+
+    ECSAutoScalingGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            VPCZoneIdentifier: !Ref Subnets
+            LaunchConfigurationName: !Ref ECSLaunchConfiguration
+            MinSize: 4
+            MaxSize: 5
+            DesiredCapacity: 4
+            Tags:
+                - Key: Name
+                  Value: ECS host data trans
+                  PropagateAtLaunch: true
+        CreationPolicy:
+            ResourceSignal:
+                Timeout: PT15M
+        UpdatePolicy:
+            AutoScalingRollingUpdate:
+                MinInstancesInService: 5
+                MaxBatchSize: 5
+                PauseTime: PT15M
+                SuspendProcesses:
+                  - HealthCheck
+                  - ReplaceUnhealthy
+                  - AZRebalance
+                  - AlarmNotification
+                  - ScheduledActions
+                WaitOnResourceSignals: true
+
+    ECSLaunchConfiguration:
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            ImageId:  !FindInMap [AWSRegionToAMI, !Ref "AWS::Region", AMI]
+            InstanceType: c4.large
+            KeyName: !Ref ec2KeyPair
+            SecurityGroups:
+                - !Ref SSHSecurityGroup
+            IamInstanceProfile: !Ref ECSInstanceProfile
+            UserData:
+                "Fn::Base64": !Sub |
+                    #!/bin/bash
+                    yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+                    yum install -y aws-cfn-bootstrap
+                    /opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration
+                    /opt/aws/bin/cfn-signal -e $? --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSAutoScalingGroup
+
+        Metadata:
+            AWS::CloudFormation::Init:
+                config:
+                    packages:
+                        yum:
+                            awslogs: []
+
+                    commands:
+                        01_add_instance_to_cluster:
+                            command: !Sub echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+                    files:
+                        "/etc/cfn/cfn-hup.conf":
+                            mode: 000400
+                            owner: root
+                            group: root
+                            content: !Sub |
+                                [main]
+                                stack=${AWS::StackId}
+                                region=${AWS::Region}
+
+                        "/etc/cfn/hooks.d/cfn-auto-reloader.conf":
+                            content: !Sub |
+                                [cfn-auto-reloader-hook]
+                                triggers=post.update
+                                path=Resources.ECSLaunchConfiguration.Metadata.AWS::CloudFormation::Init
+                                action=/opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration
+
+                        "/etc/awslogs/awscli.conf":
+                            content: !Sub |
+                                [plugins]
+                                cwlogs = cwlogs
+                                [default]
+                                region = ${AWS::Region}
+
+                        "/etc/awslogs/awslogs.conf":
+                            content: !Sub |
+                                [general]
+                                state_file = /var/lib/awslogs/agent-state
+
+                                [/var/log/dmesg]
+                                file = /var/log/dmesg
+                                log_group_name = ${ECSCluster}-/var/log/dmesg
+                                log_stream_name = ${ECSCluster}
+
+                                [/var/log/messages]
+                                file = /var/log/messages
+                                log_group_name = ${ECSCluster}-/var/log/messages
+                                log_stream_name = ${ECSCluster}
+                                datetime_format = %b %d %H:%M:%S
+
+                                [/var/log/docker]
+                                file = /var/log/docker
+                                log_group_name = ${ECSCluster}-/var/log/docker
+                                log_stream_name = ${ECSCluster}
+                                datetime_format = %Y-%m-%dT%H:%M:%S.%f
+
+                                [/var/log/ecs/ecs-init.log]
+                                file = /var/log/ecs/ecs-init.log.*
+                                log_group_name = ${ECSCluster}-/var/log/ecs/ecs-init.log
+                                log_stream_name = ${ECSCluster}
+                                datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+                                [/var/log/ecs/ecs-agent.log]
+                                file = /var/log/ecs/ecs-agent.log.*
+                                log_group_name = ${ECSCluster}-/var/log/ecs/ecs-agent.log
+                                log_stream_name = ${ECSCluster}
+                                datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+                                [/var/log/ecs/audit.log]
+                                file = /var/log/ecs/audit.log.*
+                                log_group_name = ${ECSCluster}-/var/log/ecs/audit.log
+                                log_stream_name = ${ECSCluster}
+                                datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+                    services:
+                        sysvinit:
+                            cfn-hup:
+                                enabled: true
+                                ensureRunning: true
+                                files:
+                                    - /etc/cfn/cfn-hup.conf
+                                    - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+                            awslogs:
+                                enabled: true
+                                ensureRunning: true
+                                files:
+                                    - /etc/awslogs/awslogs.conf
+                                    - /etc/awslogs/awscli.conf
+
+    # This IAM Role is attached to all of the ECS hosts. It is based on the default role
+    # published here:
+    # http://docs.aws.amazon.com/AmazonECS/latest/developerguide/instance_IAM_role.html
+    #
+    # You can add other IAM policy statements here to allow access from your ECS hosts
+    # to other AWS services. Please note that this role will be used by ALL containers
+    # running on the ECS host.
+
+    ECSRole:
+        Type: AWS::IAM::Role
+        Properties:
+            Path: /
+            RoleName: !Ref ecsRoleName
+            AssumeRolePolicyDocument: |
+                {
+                    "Statement": [{
+                        "Action": "sts:AssumeRole",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "ec2.amazonaws.com"
+                        }
+                    }]
+                }
+            Policies:
+                - PolicyName: ecs-service
+                  PolicyDocument: |
+                    {
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Action": "*",
+                            "Resource": "*"
+                        }]
+                    }
+
+    ECSInstanceProfile:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Path: /
+            Roles:
+                - !Ref ECSRole
+
+    ECSServiceAutoScalingRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    Action:
+                    - 'sts:AssumeRole'
+                    Effect: Allow
+                    Principal:
+                        Service:
+                        - application-autoscaling.amazonaws.com
+            Path: /
+            Policies:
+            - PolicyName: ecs-service-autoscaling
+              PolicyDocument:
+                  Statement:
+                      Effect: Allow
+                      Action:
+                      - application-autoscaling:*
+                      - cloudwatch:DescribeAlarms
+                      - cloudwatch:PutMetricAlarm
+                      - ecs:DescribeServices
+                      - ecs:UpdateService
+                      Resource: "*"
+    taskdefinition:
+        Type: 'AWS::ECS::TaskDefinition'
+        Properties:
+            RequiresCompatibilities:
+                - "EC2"
+            TaskRoleArn: !GetAtt ECStaskRole.Arn
+            ContainerDefinitions: 
+                - 
+                    Name: "MytaskDefimiao1"
+                    Image: "859407660328.dkr.ecr.us-east-1.amazonaws.com/yuantestrepo:v1.0.68"
+                    Memory: "128"
+                    Environment: [
+                            {
+                                "Name": "accessId",
+                                "Value": {
+                                    "Ref": "accessId"
+                                }
+                            },
+                            {
+                                "Name": "accessKey",
+                                "Value": {
+                                    "Ref": "accessKey"
+                                }
+                            },
+                            {
+                                "Name": "destbucket",
+                                "Value": {
+                                    "Ref": "destbucket"
+                                }
+                            },
+                            {
+                                "Name": "destregion",
+                                "Value": {
+                                    "Ref": "destregion"
+                                }
+                            },
+                            {
+                                "Name": "myregion",
+                                "Value": { 
+                                    "Ref": "AWS::Region"
+                                }
+                            },
+                            {
+                                "Name": "queueName",
+                                "Value": { 
+                                    "Ref": "queueName"
+                                }
+                            },
+                            {
+                                "Name": "counterTable",
+                                "Value": { 
+                                    "Ref": "counterTable"
+                                }
+                            },
+                            {
+                                "Name": "partTable",
+                                "Value": { 
+                                    "Ref": "partTable"
+                                }
+                            },
+                            ]
+    MyServices:
+        Type: 'AWS::ECS::Service'
+        Properties:
+            ServiceName: 
+                Ref: myservices
+            Cluster: 
+                Ref: ECSCluster
+            DesiredCount: 10
+            TaskDefinition:
+                Ref: taskdefinition

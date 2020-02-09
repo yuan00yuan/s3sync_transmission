@@ -1,0 +1,387 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::Serverless-2016-10-31'
+Description: An AWS resources creation template.
+Parameters:
+    globalBucketName:
+        Description: Select the bucket as the source bucket in your region
+        Type: String
+    emailAddress:
+        Description: email address receive sns info
+        Type: String
+    accessId:
+        Description: China region access ID
+        Type: String
+    accessKey:
+        Description: China region access Key
+        Type: String
+    destbucket:
+        Description: China region destination bucket
+        Type: String
+    destregion:
+        Description: China region destination region
+        Type: String
+    queueName:
+        Description: queue name for sqs
+        Type: String
+    counterTable:
+        Description: table name for count the upload
+        Type: String
+    partTable:
+        Description: table name for count the part
+        Type: String
+    myservices:
+        Description: services name in ecs cluster
+        Type: String
+    mycluster:
+        Description: cluster name in ecs 
+        Type: String
+    creaseTopicNmae:
+        Description: sns topic for crease ecs task
+        Type: String
+    reduceTopicNmae:
+        Description: sns topic for reduce ecs task
+        Type: String
+    creaseAlarmNmae:
+        Description: alarm name for crease ecs task
+        Type: String
+    reduceAlarmNmae:
+        Description: alarm name for reduce ecs task
+        Type: String
+    lambdaRoleName:
+        Description: role name for lambda
+        Type: String
+Resources:
+  lambRole:
+        Type: AWS::IAM::Role
+        Properties:
+            Path: /
+            RoleName: !Ref lambdaRoleName
+            AssumeRolePolicyDocument: |
+                {
+                    "Statement": [{
+                        "Action": "sts:AssumeRole",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "lambda.amazonaws.com"
+                        }
+                    }]
+                }
+            Policies:
+                - PolicyName: ecs-service
+                  PolicyDocument: |
+                    {
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Action": ["s3:*","sqs:*",
+                            "application-autoscaling:DeleteScalingPolicy",
+                            "dynamodb:*",
+                            "autoscaling:Describe*",
+                            "cloudwatch:*",
+                            "logs:*",
+                            "sns:*",
+                            "iam:GetPolicy",
+                            "iam:GetPolicyVersion",
+                            "iam:GetRole",
+                            "dax:*",
+                            "application-autoscaling:DeleteScalingPolicy",
+                            "application-autoscaling:DeregisterScalableTarget",
+                            "application-autoscaling:DescribeScalableTargets",
+                            "application-autoscaling:DescribeScalingActivities",
+                            "application-autoscaling:DescribeScalingPolicies",
+                            "application-autoscaling:PutScalingPolicy",
+                            "application-autoscaling:RegisterScalableTarget",
+                            "cloudwatch:DeleteAlarms",
+                            "cloudwatch:DescribeAlarmHistory",
+                            "cloudwatch:DescribeAlarms",
+                            "cloudwatch:DescribeAlarmsForMetric",
+                            "cloudwatch:GetMetricStatistics",
+                            "cloudwatch:ListMetrics",
+                            "cloudwatch:PutMetricAlarm",
+                            "datapipeline:ActivatePipeline",
+                            "datapipeline:CreatePipeline",
+                            "datapipeline:DeletePipeline",
+                            "datapipeline:DescribeObjects",
+                            "datapipeline:DescribePipelines",
+                            "datapipeline:GetPipelineDefinition",
+                            "datapipeline:ListPipelines",
+                            "datapipeline:PutPipelineDefinition",
+                            "datapipeline:QueryObjects",
+                            "ec2:DescribeVpcs",
+                            "ec2:DescribeSubnets",
+                            "ec2:DescribeSecurityGroups",
+                            "iam:GetRole",
+                            "iam:ListRoles",
+                            "sns:CreateTopic",
+                            "sns:DeleteTopic",
+                            "sns:ListSubscriptions",
+                            "sns:ListSubscriptionsByTopic",
+                            "sns:ListTopics",
+                            "sns:Subscribe",
+                            "sns:Unsubscribe",
+                            "sns:SetTopicAttributes",
+                            "lambda:CreateFunction",
+                            "lambda:ListFunctions",
+                            "lambda:ListEventSourceMappings",
+                            "lambda:CreateEventSourceMapping",
+                            "lambda:DeleteEventSourceMapping",
+                            "lambda:GetFunctionConfiguration",
+                            "lambda:DeleteFunction",
+                            "application-autoscaling:DeregisterScalableTarget",
+                            "application-autoscaling:DescribeScalableTargets",
+                            "application-autoscaling:DescribeScalingActivities",
+                            "application-autoscaling:DescribeScalingPolicies",
+                            "application-autoscaling:PutScalingPolicy",
+                            "application-autoscaling:RegisterScalableTarget",
+                            "autoscaling:UpdateAutoScalingGroup",
+                            "autoscaling:CreateAutoScalingGroup",
+                            "autoscaling:CreateLaunchConfiguration",
+                            "autoscaling:DeleteAutoScalingGroup",
+                            "autoscaling:DeleteLaunchConfiguration",
+                            "autoscaling:Describe*",
+                            "cloudformation:CreateStack",
+                            "cloudformation:DeleteStack",
+                            "cloudformation:DescribeStack*",
+                            "cloudformation:UpdateStack",
+                            "cloudwatch:DescribeAlarms",
+                            "cloudwatch:DeleteAlarms",
+                            "cloudwatch:GetMetricStatistics",
+                            "cloudwatch:PutMetricAlarm",
+                            "ec2:AssociateRouteTable",
+                            "ec2:AttachInternetGateway",
+                            "ec2:AuthorizeSecurityGroupIngress",
+                            "ec2:CancelSpotFleetRequests",
+                            "ec2:CreateInternetGateway",
+                            "ec2:CreateLaunchTemplate",
+                            "ec2:CreateRoute",
+                            "ec2:CreateRouteTable",
+                            "ec2:CreateSecurityGroup",
+                            "ec2:CreateSubnet",
+                            "ec2:CreateVpc",
+                            "ec2:DeleteLaunchTemplate",
+                            "ec2:DeleteSubnet",
+                            "ec2:DeleteVpc",
+                            "ec2:Describe*",
+                            "ec2:DetachInternetGateway",
+                            "ec2:DisassociateRouteTable",
+                            "ec2:ModifySubnetAttribute",
+                            "ec2:ModifyVpcAttribute",
+                            "ec2:RunInstances",
+                            "ec2:RequestSpotFleet",
+                            "elasticloadbalancing:CreateListener",
+                            "elasticloadbalancing:CreateLoadBalancer",
+                            "elasticloadbalancing:CreateRule",
+                            "elasticloadbalancing:CreateTargetGroup",
+                            "elasticloadbalancing:DeleteListener",
+                            "elasticloadbalancing:DeleteLoadBalancer",
+                            "elasticloadbalancing:DeleteRule",
+                            "elasticloadbalancing:DeleteTargetGroup",
+                            "elasticloadbalancing:DescribeListeners",
+                            "elasticloadbalancing:DescribeLoadBalancers",
+                            "elasticloadbalancing:DescribeRules",
+                            "elasticloadbalancing:DescribeTargetGroups",
+                            "ecs:*",
+                            "events:DescribeRule",
+                            "events:DeleteRule",
+                            "events:ListRuleNamesByTarget",
+                            "events:ListTargetsByRule",
+                            "events:PutRule",
+                            "events:PutTargets",
+                            "events:RemoveTargets",
+                            "iam:ListAttachedRolePolicies",
+                            "iam:ListInstanceProfiles",
+                            "iam:ListRoles",
+                            "logs:CreateLogGroup",
+                            "logs:DescribeLogGroups",
+                            "logs:FilterLogEvents",
+                            "route53:GetHostedZone",
+                            "route53:ListHostedZonesByName",
+                            "route53:CreateHostedZone",
+                            "route53:DeleteHostedZone",
+                            "route53:GetHealthCheck",
+                            "servicediscovery:CreatePrivateDnsNamespace",
+                            "servicediscovery:CreateService",
+                            "servicediscovery:GetNamespace",
+                            "servicediscovery:GetOperation",
+                            "servicediscovery:GetService",
+                            "servicediscovery:ListNamespaces",
+                            "servicediscovery:ListServices",
+                            "servicediscovery:UpdateService"],
+                                        "Resource": "*"
+                                    }]
+                                }
+  s3createFunc:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: s3put.s3_event_handler.lambda_handler
+      Runtime: python3.6
+      CodeUri: s3://westcode/s3put.zip
+      Environment:
+        Variables:
+          bucket: !Ref destbucket
+          region: !Ref destregion
+          accessKey: !Ref accessId
+          accessSecret: !Ref accessKey
+          queueName: !Ref queueName
+          counterTable: !Ref counterTable
+          partTable: !Ref partTable
+      Description: ''
+      MemorySize: 576
+      Timeout: 120
+      Role: !GetAtt lambRole.Arn
+      Events:
+        BucketEvent1:
+          Type: S3
+          Properties:
+            Bucket:
+              Ref: globalBucket
+            Events:
+              - 's3:ObjectCreated:*'
+  globalBucket:
+    Type: 'AWS::S3::Bucket'
+    BucketName: !Ref globalBucketName
+  queueforRecord:
+    Type: "AWS::SQS::Queue"
+    Properties:
+          QueueName: !Ref queueName
+  TransportCounter:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      ProvisionedThroughput:
+        ReadCapacityUnits: '5'
+        WriteCapacityUnits: '5'
+      AttributeDefinitions:
+        - AttributeName: uploadId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: uploadId
+          KeyType: HASH
+      TableName: !Ref counterTable
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+  TransportParts:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      ProvisionedThroughput:
+        ReadCapacityUnits: '5'
+        WriteCapacityUnits: '5'
+      AttributeDefinitions:
+        - AttributeName: eTag
+          AttributeType: S
+      KeySchema:
+        - AttributeName: eTag
+          KeyType: HASH
+      TableName: !Ref partTable
+  queueClearFunc:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: dynamoChange.complete_upload_handler.lambda_handler
+      Runtime: python3.6
+      CodeUri: 's3://westcode/dynamoChange.zip'
+      Environment:
+        Variables:
+          bucket: !Ref destbucket
+          region: !Ref destregion
+          accessKey: !Ref accessId
+          accessSecret: !Ref accessKey
+          queueName: !Ref queueName
+          counterTable: !Ref counterTable
+          partTable: !Ref partTable
+      Description: ''
+      MemorySize: 576
+      Timeout: 120
+      Role: !GetAtt lambRole.Arn
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt TransportCounter.StreamArn
+            BatchSize: 100
+            StartingPosition: TRIM_HORIZON
+  MySNSTopicCrease:
+        Type: AWS::SNS::Topic
+        Properties:
+            TopicName: !Ref creaseTopicNmae
+            Subscription:
+            - Endpoint: !Ref emailAddress
+              Protocol: email
+  MyAlarm:
+        Type: "AWS::CloudWatch::Alarm"
+        Properties:
+            AlarmActions:
+                - Ref: MySNSTopicCrease
+            AlarmName: !Ref creaseAlarmNmae
+            ComparisonOperator: GreaterThanThreshold
+            Dimensions:
+            -  Name: QueueName
+               Value: !Ref queueName
+            EvaluationPeriods: '1'
+            MetricName: ApproximateNumberOfMessagesVisible
+            Namespace: AWS/SQS
+            Period: 60
+            Statistic: Average
+            Threshold: 2
+  MySNSTopicReduce:
+        Type: AWS::SNS::Topic
+        Properties:
+            TopicName: !Ref reduceTopicNmae
+            Subscription:
+            - Endpoint: !Ref emailAddress
+              Protocol: email
+  MyAlarmReduce:
+        Type: "AWS::CloudWatch::Alarm"
+        Properties:
+            AlarmActions:
+                - Ref: MySNSTopicReduce
+            AlarmName: !Ref reduceAlarmNmae
+            ComparisonOperator: LessThanThreshold
+            Dimensions:
+            -  Name: QueueName
+               Value: !Ref queueName
+            EvaluationPeriods: '1'
+            MetricName: ApproximateNumberOfMessagesVisible
+            Namespace: AWS/SQS
+            Period: 60
+            Statistic: Average
+            Threshold: 2
+  ECScreateFunc:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            Handler: lambda_function.lambda_handler
+            Runtime: python3.6
+            CodeUri: s3://westcode/ecscreate.zip
+            Description: ''
+            MemorySize: 576
+            Timeout: 120
+            Role: !GetAtt lambRole.Arn
+            Environment:
+              Variables:
+                queueName: !Ref queueName
+                myservices: !Ref myservices
+                mycluster: !Ref mycluster
+            Events:
+                snsEvent1:
+                    Type: SNS
+                    Properties:
+                        Topic:
+                            Ref: MySNSTopicCrease
+  ECSreduceFunc:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            Handler: lambda_function.lambda_handler
+            Runtime: python3.6
+            CodeUri: s3://westcode/ecsreduce.zip
+            Description: ''
+            MemorySize: 576
+            Timeout: 120
+            Role: !GetAtt lambRole.Arn
+            Environment:
+              Variables:
+                queueName: !Ref queueName
+                myservices: !Ref myservices
+                mycluster: !Ref mycluster
+            Events:
+                snsEvent2:
+                    Type: SNS
+                    Properties:
+                        Topic:
+                            Ref: MySNSTopicReduce
